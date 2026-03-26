@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Self-hosted batch QR code generator. Create PNG or SVG QR codes from URLs with custom colors and error correction. Open source.">
+    <title>QR Code Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script>
+        // Prevent theme flash
+        (function () {
+            const t = localStorage.getItem('theme') ||
+                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar">
+    <div class="container">
+        <div class="nav-brand">
+            <h1>
+                <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme" title="Toggle dark/light mode">☀</button>
+                QR Code Generator
+            </h1>
+        </div>
+    </div>
+</nav>
+
+<!-- Main -->
+<main class="container" style="padding-top:2rem;padding-bottom:4rem;">
+
+    {% if not qr_support %}
+    <div class="alert alert-error" style="margin-bottom:1.5rem;">
+        <strong>⚠ qrcode library not installed.</strong>
+        Run <code>pip install "qrcode[pil]"</code> in your virtual environment, then restart.
+    </div>
+    {% endif %}
+
+    <!-- Page header -->
+    <div class="page-header">
+        <h2>Batch QR Code Generator</h2>
+        <p class="subtitle">
+            Paste URLs below or upload a <code>.txt</code> file (one URL per line) to generate
+            multiple QR codes at once. Download individually or as a ZIP.
+            <br><strong>Limit: 20 URLs per batch.</strong>
+        </p>
+    </div>
+
+    <div class="qr-layout">
+
+        <!-- ── Left: Input + Settings ──────────────────────────────────── -->
+        <div class="qr-main">
+
+            <!-- Step 1: URLs -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="step-badge">1</span>
+                    <h3>Enter URLs</h3>
+                </div>
+
+                <label class="field-label">Paste URLs (one per line)</label>
+                <textarea id="qr-url-input" class="url-textarea"
+                          placeholder="https://nextframe.dev&#10;https://quietlinepress.com&#10;https://opennote.dev&#10;https://opennotes.dev&#10;https://..."
+                          {% if not qr_support %}disabled{% endif %}></textarea>
+
+                <div class="or-divider"><span>or</span></div>
+
+                <label class="field-label">Upload a text file of URLs</label>
+                <div id="qr-file-drop" class="file-drop-zone {% if not qr_support %}disabled{% endif %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="24" height="24">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <polyline points="17 8 12 3 7 8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <line x1="12" y1="3" x2="12" y2="15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span id="qr-file-label">Drop a .txt file here or <u>browse</u></span>
+                    <input type="file" id="qr-file-input" accept=".txt,text/plain"
+                           {% if not qr_support %}disabled{% endif %}
+                           style="display:none;">
+                </div>
+            </div>
+
+            <!-- Step 2: Options -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="step-badge">2</span>
+                    <h3>Options</h3>
+                </div>
+
+                <div class="options-grid">
+                    <div class="option-field">
+                        <label for="qr-format" class="field-label">Format</label>
+                        <select id="qr-format" class="select-input">
+                            <option value="png" selected>PNG (raster)</option>
+                            <option value="svg">SVG (vector)</option>
+                        </select>
+                    </div>
+
+                    <div class="option-field">
+                        <label for="qr-ec" class="field-label">Error correction</label>
+                        <select id="qr-ec" class="select-input">
+                            <option value="L">L — Low (7%)</option>
+                            <option value="M" selected>M — Medium (15%)</option>
+                            <option value="Q">Q — Quartile (25%)</option>
+                            <option value="H">H — High (30%)</option>
+                        </select>
+                        <small class="field-hint">Higher levels make the QR code readable even if partially damaged or obscured, but increase density. Use <strong>H</strong> if you plan to add a logo overlay.</small>
+                    </div>
+
+                    <div class="option-field">
+                        <label for="qr-size" class="field-label">
+                            Size (px)
+                            <span id="qr-size-svg-note" style="display:none;font-weight:400;font-size:0.75rem;opacity:0.6;"> — ignored for SVG</span>
+                        </label>
+                        <input type="number" id="qr-size" class="text-input"
+                               value="300" min="100" max="2000" step="50">
+                    </div>
+
+                    <div class="option-field"><!-- spacer --></div>
+
+                    <div class="option-field">
+                        <label for="qr-fill" class="field-label">Foreground</label>
+                        <div class="color-row">
+                            <input type="color" id="qr-fill-picker" value="#000000" class="color-picker">
+                            <input type="text" id="qr-fill" class="text-input mono" value="#000000" maxlength="20">
+                        </div>
+                    </div>
+
+                    <div class="option-field">
+                        <label for="qr-back" class="field-label">Background</label>
+                        <div class="color-row">
+                            <input type="color" id="qr-back-picker" value="#ffffff" class="color-picker">
+                            <input type="text" id="qr-back" class="text-input mono" value="#ffffff" maxlength="20">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generate -->
+            <button id="qr-generate-btn" class="btn btn-primary btn-full"
+                    {% if not qr_support %}disabled{% endif %}>
+                Generate QR Codes
+            </button>
+        </div>
+
+        <!-- ── Right: Results ───────────────────────────────────────────── -->
+        <div class="qr-sidebar">
+
+            <!-- Results card (hidden until generation) -->
+            <div class="card" id="qr-results-card" style="display:none;">
+                <div class="card-header">
+                    <span class="step-badge">3</span>
+                    <h3>Results <span id="qr-result-count" class="badge">0</span></h3>
+                </div>
+                <button id="qr-download-all-btn" class="btn btn-primary" style="width:100%;margin-bottom:1rem;">
+                    ↓ Download All as ZIP
+                </button>
+                <div id="qr-results-list"></div>
+            </div>
+
+            <!-- Placeholder -->
+            <div class="card" id="qr-placeholder-card">
+                <div class="placeholder-body">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="52" height="52" style="opacity:0.25;margin-bottom:1rem;">
+                        <rect x="3" y="3" width="8" height="8" rx="1" stroke-width="2"/>
+                        <rect x="3" y="13" width="8" height="8" rx="1" stroke-width="2"/>
+                        <rect x="13" y="3" width="8" height="8" rx="1" stroke-width="2"/>
+                        <rect x="13" y="13" width="4" height="4" rx="0.5" stroke-width="2"/>
+                        <rect x="19" y="13" width="2" height="2" stroke-width="2"/>
+                        <rect x="13" y="19" width="2" height="2" stroke-width="2"/>
+                        <rect x="17" y="19" width="4" height="2" stroke-width="2"/>
+                        <rect x="19" y="17" width="2" height="2" stroke-width="2"/>
+                    </svg>
+                    <p>QR codes will appear here after generation</p>
+                </div>
+            </div>
+
+        </div>
+    </div><!-- /.qr-layout -->
+
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+    <div class="container">
+        <p>QR Code Generator · Built by <a href="https://nextframe.dev" target="_blank" rel="noopener">nextframe.dev</a> · Published by <a href="https://quietlinepress.com" target="_blank" rel="noopener">Quiet Line Press</a> · Try also <a href="https://opennote.dev" target="_blank" rel="noopener">opennote.dev</a></p>
+    </div>
+</footer>
+
+<!-- Spinner overlay -->
+<div id="qr-spinner" class="spinner-overlay" style="display:none;">
+    <div class="spinner-box">
+        <div class="spinner"></div>
+        <p id="qr-spinner-msg">Generating QR codes…</p>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ── Theme toggle ────────────────────────────────────────────────────────
+    const themeBtn = document.getElementById('theme-toggle');
+    function applyTheme(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        themeBtn.textContent = t === 'dark' ? '☀' : '🌙';
+        themeBtn.style.fontSize = t === 'dark' ? '1.7rem' : '1.4rem';
+        localStorage.setItem('theme', t);
+    }
+    applyTheme(localStorage.getItem('theme') ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    themeBtn.addEventListener('click', () => {
+        applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+
+    // ── Elements ────────────────────────────────────────────────────────────
+    const urlInput        = document.getElementById('qr-url-input');
+    const fileInput       = document.getElementById('qr-file-input');
+    const fileDropZone    = document.getElementById('qr-file-drop');
+    const fileLabel       = document.getElementById('qr-file-label');
+    const generateBtn     = document.getElementById('qr-generate-btn');
+    const resultsCard     = document.getElementById('qr-results-card');
+    const placeholderCard = document.getElementById('qr-placeholder-card');
+    const resultsList     = document.getElementById('qr-results-list');
+    const resultCount     = document.getElementById('qr-result-count');
+    const downloadAllBtn  = document.getElementById('qr-download-all-btn');
+    const spinner         = document.getElementById('qr-spinner');
+    const spinnerMsg      = document.getElementById('qr-spinner-msg');
+    const fillPicker      = document.getElementById('qr-fill-picker');
+    const fillText        = document.getElementById('qr-fill');
+    const backPicker      = document.getElementById('qr-back-picker');
+    const backText        = document.getElementById('qr-back');
+    const formatSel       = document.getElementById('qr-format');
+    const svgNote         = document.getElementById('qr-size-svg-note');
+    const sizeInput       = document.getElementById('qr-size');
+
+    let currentSessionId = null;
+
+    // ── Format toggle ───────────────────────────────────────────────────────
+    formatSel.addEventListener('change', () => {
+        const isSvg = formatSel.value === 'svg';
+        svgNote.style.display   = isSvg ? 'inline' : 'none';
+        sizeInput.disabled      = isSvg;
+        sizeInput.style.opacity = isSvg ? '0.4' : '1';
+    });
+
+    // ── Colour pickers sync ─────────────────────────────────────────────────
+    fillPicker.addEventListener('input', () => { fillText.value = fillPicker.value; });
+    fillText.addEventListener('change', () => {
+        if (/^#[0-9a-fA-F]{6}$/.test(fillText.value)) fillPicker.value = fillText.value;
+    });
+    backPicker.addEventListener('input', () => { backText.value = backPicker.value; });
+    backText.addEventListener('change', () => {
+        if (/^#[0-9a-fA-F]{6}$/.test(backText.value)) backPicker.value = backText.value;
+    });
+
+    // ── File drop zone ──────────────────────────────────────────────────────
+    fileDropZone.addEventListener('click', () => fileInput.click());
+    fileDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fileDropZone.classList.add('active');
+    });
+    fileDropZone.addEventListener('dragleave', () => fileDropZone.classList.remove('active'));
+    fileDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        fileDropZone.classList.remove('active');
+        const file = e.dataTransfer.files[0];
+        if (file) applyFile(file);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) applyFile(fileInput.files[0]);
+    });
+
+    function applyFile(file) {
+        fileLabel.textContent = file.name;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const lines = e.target.result.split(/\r?\n/)
+                .map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            const existing = new Set(urlInput.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean));
+            const newLines = lines.filter(l => !existing.has(l));
+            if (newLines.length) {
+                urlInput.value = (urlInput.value.trimEnd() ? urlInput.value.trimEnd() + '\n' : '')
+                    + newLines.join('\n');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ── Generate ────────────────────────────────────────────────────────────
+    generateBtn.addEventListener('click', generate);
+
+    async function generate() {
+        const urls = urlInput.value.trim();
+        if (!urls) { alert('Please enter at least one URL.'); return; }
+
+        const urlCount = urls.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#')).length;
+        showSpinner(`Generating ${urlCount} QR code${urlCount !== 1 ? 's' : ''}…`);
+
+        const fd = new FormData();
+        fd.append('urls', urls);
+        if (fileInput.files[0]) fd.append('url_file', fileInput.files[0]);
+        fd.append('format', formatSel.value);
+        fd.append('size', sizeInput.value);
+        fd.append('error_correction', document.getElementById('qr-ec').value);
+        fd.append('fill_color', fillText.value || fillPicker.value);
+        fd.append('back_color', backText.value || backPicker.value);
+
+        try {
+            const res  = await fetch('/generate_qrcode', { method: 'POST', body: fd });
+            const data = await res.json();
+            hideSpinner();
+            if (data.error) { alert('Error: ' + data.error); return; }
+            currentSessionId = data.session_id;
+            renderResults(data.results);
+        } catch (err) {
+            hideSpinner();
+            alert('Network error: ' + err.message);
+        }
+    }
+
+    function renderResults(results) {
+        resultsList.innerHTML = '';
+        resultCount.textContent = results.filter(r => !r.error).length;
+
+        results.forEach((r) => {
+            const item = document.createElement('div');
+            item.className = 'result-item';
+
+            if (r.error) {
+                item.innerHTML = `
+                    <div class="result-error">
+                        <span class="result-url" title="${esc(r.url)}">${esc(truncate(r.url, 40))}</span>
+                        <span class="error-badge">Error: ${esc(r.error)}</span>
+                    </div>`;
+            } else {
+                const isSvg = r.format === 'svg';
+                const mime  = isSvg ? 'image/svg+xml' : 'image/png';
+                const label = isSvg ? 'SVG' : 'PNG';
+                item.innerHTML = `
+                    <div class="result-row">
+                        <img src="data:${mime};base64,${r.data}"
+                             alt="QR for ${esc(r.url)}" class="qr-thumb" style="background:#fff;">
+                        <div class="result-info">
+                            <span class="result-url" title="${esc(r.url)}">${esc(truncate(r.url, 45))}</span>
+                            <a href="/download_single_qr/${currentSessionId}/${encodeURIComponent(r.filename)}"
+                               class="btn btn-sm" download>↓ ${label}</a>
+                        </div>
+                    </div>`;
+            }
+            resultsList.appendChild(item);
+        });
+
+        placeholderCard.style.display = 'none';
+        resultsCard.style.display = 'block';
+    }
+
+    downloadAllBtn.addEventListener('click', () => {
+        if (currentSessionId) window.location.href = `/download_qrcodes/${currentSessionId}`;
+    });
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+    function showSpinner(msg) {
+        spinnerMsg.textContent = msg || 'Processing…';
+        spinner.style.display = 'flex';
+        generateBtn.disabled = true;
+    }
+    function hideSpinner() {
+        spinner.style.display = 'none';
+        generateBtn.disabled = false;
+    }
+    function esc(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function truncate(str, n) {
+        return str.length > n ? str.slice(0, n) + '…' : str;
+    }
+})();
+</script>
+</body>
+</html>
